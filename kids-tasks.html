@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>לוח המשימות 🌟</title>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -513,6 +515,24 @@
 
 <script>
 // ═══════════════════════════════════════════════════
+// FIREBASE CONFIG
+// ═══════════════════════════════════════════════════
+// 1. כנס ל- https://console.firebase.google.com
+// 2. צור פרויקט חדש → Realtime Database → Create database
+// 3. Rules → שנה ל: { "rules": { ".read": true, ".write": true } }
+// 4. Project settings → העתק את הפרטים לכאן:
+const FIREBASE_CONFIG = {
+  apiKey:            "",   // ← מלא
+  authDomain:        "",
+  databaseURL:       "",   // ← חשוב: https://YOUR-PROJECT-default-rtdb.firebaseio.com
+  projectId:         "",
+  storageBucket:     "",
+  messagingSenderId: "",
+  appId:             ""
+};
+const FAMILY_ID = "nativ-family"; // שנה לשם ייחודי למשפחתך
+
+// ═══════════════════════════════════════════════════
 // DATA
 // ═══════════════════════════════════════════════════
 const LS_KEY = 'kidsTasksData';
@@ -530,61 +550,106 @@ const DEFAULT_TASKS = [
 ];
 
 let data = {};
+let firebaseRef = null;
+
+function applyDefaults() {
+  if (!data.tasks)      data.tasks      = JSON.parse(JSON.stringify(DEFAULT_TASKS));
+  if (!data.parentPass) data.parentPass = '0000';
+  if (!data.childPins)  data.childPins  = { almog: null, libi: null };
+  if (!data.almog)      data.almog      = {};
+  if (!data.libi)       data.libi       = {};
+  const sun = getSunday();
+  if (data.weekStart !== sun) {
+    data.almog     = {};
+    data.libi      = {};
+    data.weekStart = sun;
+    return true; // week was reset
+  }
+  return false;
+}
 
 function loadData() {
   try {
     const raw = localStorage.getItem(LS_KEY);
     data = raw ? JSON.parse(raw) : {};
   } catch(_) { data = {}; }
-
-  if (!data.tasks)      data.tasks      = JSON.parse(JSON.stringify(DEFAULT_TASKS));
-  if (!data.parentPass) data.parentPass = '0000';
-  if (!data.childPins)  data.childPins  = { almog: null, libi: null };
-  if (!data.almog)      data.almog      = {};
-  if (!data.libi)       data.libi       = {};
-
-  // weekly auto-reset
-  const currentSunday = getSunday();
-  if (data.weekStart !== currentSunday) {
-    data.almog = {};
-    data.libi  = {};
-    data.weekStart = currentSunday;
-  }
+  applyDefaults();
   save();
 }
 
 function save() {
   try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch(_) {}
+  if (firebaseRef) {
+    firebaseRef.set(data).catch(e => console.error('Firebase save error:', e));
+  }
+}
+
+function initSync() {
+  const configured = FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.databaseURL;
+  if (!configured) {
+    loadData();
+    updateHomeScores();
+    return;
+  }
+  try {
+    firebase.initializeApp(FIREBASE_CONFIG);
+    firebaseRef = firebase.database().ref('families/' + FAMILY_ID);
+    firebaseRef.on('value', snapshot => {
+      const remote = snapshot.val();
+      if (remote) {
+        data = remote;
+        const weekReset = applyDefaults();
+        if (weekReset) firebaseRef.set(data);
+      } else {
+        loadData();
+        firebaseRef.set(data);
+        return;
+      }
+      try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch(_) {}
+      updateHomeScores();
+      if (currentChild) renderBoard();
+    });
+  } catch(e) {
+    console.error('Firebase init failed:', e);
+    loadData();
+    updateHomeScores();
+  }
 }
 
 // ═══════════════════════════════════════════════════
-// DATE HELPERS
+// DATE HELPERS  (timezone-safe — uses local date, not UTC)
 // ═══════════════════════════════════════════════════
+function localISODate(d) {
+  d = d || new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
 function getSunday(d) {
   d = d ? new Date(d) : new Date();
   d.setHours(0,0,0,0);
-  d.setDate(d.getDate() - d.getDay()); // getDay() 0=Sun
-  return d.toISOString().slice(0,10);
+  d.setDate(d.getDate() - d.getDay());
+  return localISODate(d);
 }
 
 function getWeekDates() {
+  const [y, m, day] = data.weekStart.split('-').map(Number);
+  const sun = new Date(y, m - 1, day);
   const dates = [];
-  const sun = new Date(data.weekStart + 'T00:00:00');
   for (let i = 0; i < 7; i++) {
     const d = new Date(sun);
     d.setDate(sun.getDate() + i);
-    dates.push(d.toISOString().slice(0,10));
+    dates.push(localISODate(d));
   }
   return dates;
 }
 
 function fmtDate(isoStr) {
-  const d = new Date(isoStr + 'T00:00:00');
-  return `${d.getDate()}/${d.getMonth()+1}`;
+  const [, m, d] = isoStr.split('-').map(Number);
+  return `${d}/${m}`;
 }
 
 function todayISO() {
-  return new Date().toISOString().slice(0,10);
+  return localISODate();
 }
 
 // ═══════════════════════════════════════════════════
@@ -733,17 +798,13 @@ function submitPin() {
   const pin   = document.getElementById('cp-input').value;
   const err   = document.getElementById('cp-err');
 
-  console.log('[submitPin] child:', child, '| mode:', pinMode, '| pin:', pin, '| stored:', data.childPins[child]);
-
   if (pin.length < 4) {
-    console.log('[submitPin] too short');
     err.textContent = '❌ הקוד צריך להיות 4 ספרות';
     return;
   }
 
   if (pinMode === 'set') {
     const confirmVal = document.getElementById('cp-confirm').value;
-    console.log('[submitPin] set mode | confirm:', confirmVal);
     if (pin !== confirmVal) {
       err.textContent = '❌ הקודים לא תואמים, נסה שוב';
       document.getElementById('cp-confirm').value = '';
@@ -754,7 +815,6 @@ function submitPin() {
     data.childPins[child] = pin;
     save();
   } else {
-    console.log('[submitPin] enter mode | match:', pin === data.childPins[child]);
     if (pin !== data.childPins[child]) {
       err.textContent = '❌ קוד שגוי, נסה שוב';
       document.getElementById('cp-input').value = '';
@@ -764,13 +824,12 @@ function submitPin() {
     }
   }
 
-  console.log('[submitPin] SUCCESS → going to board for', child);
   pinChild = null;
   document.getElementById('child-pin-modal').classList.remove('open');
   currentChild = child;
   if (!data[child]) data[child] = {};
   showScreen('board');
-  try { renderBoard(); } catch(e) { console.error('renderBoard error:', e); }
+  renderBoard();
 }
 
 function resetChildPin(child) {
@@ -791,8 +850,7 @@ const childColors = { almog: 'var(--almog)', libi: 'var(--libi)' };
 
 function renderBoard() {
   const child = currentChild;
-  console.log('[renderBoard] child:', child, '| data[child]:', data[child]);
-  if (!child) { console.error('[renderBoard] no currentChild!'); return; }
+  if (!child) return;
   if (!data[child]) data[child] = {};
   const dates = getWeekDates();
   const today = todayISO();
@@ -1008,16 +1066,7 @@ function confirmReset() {
 // ═══════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════
-window.onerror = function(msg, src, line) {
-  const d = document.createElement('div');
-  d.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#ef4444;color:#fff;padding:12px 16px;z-index:9999;font-size:13px;font-family:monospace;';
-  d.textContent = 'JS ERROR (line ' + line + '): ' + msg;
-  document.body.appendChild(d);
-  return false;
-};
-
-loadData();
-updateHomeScores();
+initSync();
 </script>
 </body>
 </html>
