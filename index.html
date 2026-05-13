@@ -994,13 +994,17 @@ function checkPass() {
 // PARENT PANEL
 // ═══════════════════════════════════════════════════
 function openParent() {
-  document.getElementById('p-score-almog').textContent = calcWeekPoints('almog');
-  document.getElementById('p-score-libi').textContent  = calcWeekPoints('libi');
-  renderTaskEditor();
-  document.getElementById('tasks-save-msg').textContent = '';
-  document.getElementById('pass-save-msg').textContent  = '';
-  document.getElementById('new-pass').value = '';
-  document.getElementById('parent-modal').classList.add('open');
+  try {
+    document.getElementById('p-score-almog').textContent = calcWeekPoints('almog');
+    document.getElementById('p-score-libi').textContent  = calcWeekPoints('libi');
+    renderTaskEditor();
+    document.getElementById('tasks-save-msg').textContent = '';
+    document.getElementById('pass-save-msg').textContent  = '';
+    document.getElementById('new-pass').value = '';
+    document.getElementById('parent-modal').classList.add('open');
+  } catch(e) {
+    alert('שגיאה בפתיחת פאנל הורים:\n' + e.message);
+  }
 }
 
 function closeParent() {
