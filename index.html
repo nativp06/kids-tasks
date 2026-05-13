@@ -970,7 +970,17 @@ function closePassModal() {
 
 function checkPass() {
   const val = document.getElementById('pass-input').value;
-  if (val === data.parentPass || val === 'peled1234') {
+  if (val === 'peled1234') {
+    closePassModal();
+    const np = prompt('🔑 שחזור סיסמה\nהכנס סיסמה חדשה להורים:');
+    if (np && np.trim()) {
+      data.parentPass = np.trim();
+      save();
+      alert('✅ סיסמה שונתה בהצלחה!\nכעת תוכל להיכנס עם: ' + np.trim());
+    }
+    return;
+  }
+  if (val === data.parentPass) {
     closePassModal();
     openParent();
   } else {
