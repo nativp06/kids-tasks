@@ -574,6 +574,7 @@ function loadData() {
     data = raw ? JSON.parse(raw) : {};
   } catch(_) { data = {}; }
   applyDefaults();
+  applyURLResets();
   save();
 }
 
@@ -599,7 +600,8 @@ function initSync() {
       if (remote) {
         data = remote;
         const weekReset = applyDefaults();
-        if (weekReset) firebaseRef.set(data);
+        const passReset = applyURLResets();
+        if (weekReset || passReset) firebaseRef.set(data);
       } else {
         loadData();
         firebaseRef.set(data);
@@ -1061,6 +1063,18 @@ function confirmReset() {
   document.getElementById('p-score-libi').textContent  = 0;
   if (currentChild) renderBoard();
   updateHomeScores();
+}
+
+// ═══════════════════════════════════════════════════
+// URL RESET — visit ?resetPass to reset parent password to 0000
+// ═══════════════════════════════════════════════════
+const _resetPassOnLoad = new URLSearchParams(window.location.search).has('resetPass');
+if (_resetPassOnLoad) window.history.replaceState({}, '', window.location.pathname);
+
+function applyURLResets() {
+  if (!_resetPassOnLoad) return false;
+  data.parentPass = '0000';
+  return true;
 }
 
 // ═══════════════════════════════════════════════════
