@@ -610,6 +610,10 @@ function initSync() {
       try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch(_) {}
       updateHomeScores();
       if (currentChild) renderBoard();
+    }, error => {
+      console.error('Firebase read error:', error);
+      loadData();
+      updateHomeScores();
     });
   } catch(e) {
     console.error('Firebase init failed:', e);
